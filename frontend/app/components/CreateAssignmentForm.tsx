@@ -36,7 +36,7 @@ export default function CreateAssignmentForm() {
         store.setGeneratedPaper(assignmentData);
       } catch (err) {
         console.error("Failed to fetch generated paper:", err);
-        store.setGenerating(false, null);
+        store.setGenerating(false);
       }
     });
 
