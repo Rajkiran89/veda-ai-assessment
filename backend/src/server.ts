@@ -4,22 +4,24 @@ import { Server } from 'socket.io';
 import http from 'http';
 import dotenv from 'dotenv';
 import { Assignment } from './models/Assignment';
-import { assessmentQueue, worker } from './queues/assessmentQueue';
+import { assessmentQueue, worker } from './queue/assessmentQueue';
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 
-// 1. CORS Configuration
+// 1. Production CORS Configuration
 const allowedOrigins = [
-  'https://veda-ai-assessment.vercel.app', // Your live Vercel frontend URL
-  'http://localhost:3000'                  // Local development fallback
+  'https://veda-ai-assessment.vercel.app', // Your exact live Vercel frontend URL
+  'http://localhost:3000'                  // Keep local development working too
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, server-to-server, or postman)
     if (!origin) return callback(null, true);
+    
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -57,12 +59,15 @@ io.on('connection', (socket) => {
 });
 
 // 3. Connect BullMQ Worker Success to Socket.io Rooms
-worker.on('completed', (job) => {
-  const { assignmentId } = job.returnvalue;
-  console.log(`[Server] Worker finished job ${job.id}. Emitting to room: ${assignmentId}`);
-  
-  // This sends the completion flash instantly to your frontend listener
-  io.to(assignmentId).emit('generation-complete', { assignmentId });
+// FIXED: Explicitly typed 'job: any' to satisfy the strict compiler rules
+worker.on('completed', (job: any) => {
+  if (job.returnvalue && job.returnvalue.assignmentId) {
+    const { assignmentId } = job.returnvalue;
+    console.log(`[Server] Worker finished job ${job.id}. Emitting to room: ${assignmentId}`);
+    
+    // Broadcast message instantly to the client in that specific room
+    io.to(assignmentId).emit('generation-complete', { assignmentId });
+  }
 });
 
 // 4. API Endpoints
@@ -71,7 +76,7 @@ app.post('/api/assignments', async (req, res) => {
   try {
     const { topic, dueDate, numQuestions, totalMarks, instructions } = req.body;
     
-    // Create new record in MongoDB
+    // Create record stub in MongoDB
     const newAssignment = new Assignment({
       topic,
       dueDate,
@@ -83,7 +88,7 @@ app.post('/api/assignments', async (req, res) => {
     
     await newAssignment.save();
 
-    // Push execution context onto BullMQ
+    // Push execution task parameters onto BullMQ
     await assessmentQueue.add('generate-paper', {
       assignmentId: newAssignment._id.toString(),
       topic,
@@ -99,7 +104,7 @@ app.post('/api/assignments', async (req, res) => {
   }
 });
 
-// Fetch complete paper structure from database
+// Fetch complete paper structure from database once complete
 app.get('/api/assignments/:id', async (req, res) => {
   try {
     const assignment = await Assignment.findById(req.params.id);
@@ -110,7 +115,7 @@ app.get('/api/assignments/:id', async (req, res) => {
   }
 });
 
-// 5. Start listening for incoming live traffic
+// 5. Start listening for incoming live web traffic
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
   console.log(`🚀 Production Server & WebSockets active on port ${PORT}`);
