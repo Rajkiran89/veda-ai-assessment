@@ -1,10 +1,10 @@
-
-
-
 'use client';
 import { useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { useAssessmentStore } from '../store/useAssessmentStore';
+
+// Define your live backend URL here
+const BACKEND_URL = 'https://veda-ai-backend-00ac.onrender.com';
 
 export default function CreateAssignmentForm() {
   const store = useAssessmentStore();
@@ -14,25 +14,22 @@ export default function CreateAssignmentForm() {
 
   // --- REAL-TIME WEBSOCKET LISTENER ---
   useEffect(() => {
-    // Only connect if we are actively waiting for an AI generation
     if (!store.assignmentId || !store.isGenerating) return;
 
     console.log(`Connecting to WebSocket for Assignment: ${store.assignmentId}`);
-    const socket = io('http://localhost:8080');
+    // UPDATED: Now connects to the live Render server
+    const socket = io(BACKEND_URL);
 
-    // Tell the backend exactly which assignment room to join
     socket.emit('join-assignment', store.assignmentId);
 
-    // Listen for the success signal from the BullMQ worker
     socket.on('generation-complete', async (data) => {
       console.log('Socket received completion signal:', data);
       
       try {
-        // Fetch the actual paper from the database
-        const response = await fetch(`http://localhost:8080/api/assignments/${data.assignmentId}`);
+        // UPDATED: Fetching from live Render server
+        const response = await fetch(`${BACKEND_URL}/api/assignments/${data.assignmentId}`);
         const assignmentData = await response.json();
         
-        // Save it to Zustand (this will trigger the view change on the homepage)
         store.setGeneratedPaper(assignmentData);
       } catch (err) {
         console.error("Failed to fetch generated paper:", err);
@@ -40,7 +37,6 @@ export default function CreateAssignmentForm() {
       }
     });
 
-    // Cleanup connection when the component unmounts
     return () => {
       socket.disconnect();
     };
@@ -50,7 +46,8 @@ export default function CreateAssignmentForm() {
   const handleSubmit = async () => {
     store.setGenerating(true);
     try {
-      const response = await fetch('http://localhost:8080/api/assignments', {
+      // UPDATED: Posting to live Render server
+      const response = await fetch(`${BACKEND_URL}/api/assignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,7 +60,6 @@ export default function CreateAssignmentForm() {
       });
       const data = await response.json();
       
-      // Save the returned ID to Zustand so the WebSocket hook above can use it
       store.setGenerating(true, data.assignmentId); 
     } catch (error) {
       console.error('Submission failed', error);
